@@ -2,17 +2,23 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
+import numpy as np
 
-TABLES_DIR = Path("outputs/tables")
-FIGURES_DIR = Path("outputs/figures")
+from src.load_clean import load_prices_from_folder
+from src.estimate_params import add_log_returns, estimate_parameters
+from src.simulate_gbm import simulate_all_stocks
+from src.analyze_results import build_summary_table
 
-st.set_page_config(page_title="Tech Stock Monte Carlo Simulation Dashboard", layout="wide")
+DATA_FOLDER = "data"
+TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META"]
+N_PATHS = 10000
+
+st.set_page_config(page_title="Tech Stock Simulation Dashboard", layout="wide")
 
 COLUMN_NAMES = {
     "ticker": "Ticker",
     "initial_price": "Initial Price ($)",
-    "expected_final_price": "Expected Price (1 Year)",
+    "expected_final_price": "Expected Price",
     "median_final_price": "Median Price ($)",
     "p05_final_price": "5th Percentile ($)",
     "p95_final_price": "95th Percentile ($)",
@@ -59,6 +65,27 @@ params_display_cols = [
 ]
 
 
+@st.cache_data
+def load_and_prepare_data():
+    prices = load_prices_from_folder(DATA_FOLDER, TICKERS)
+    returns_df = add_log_returns(prices)
+    params_df = estimate_parameters(returns_df)
+    return prices, params_df
+
+
+@st.cache_data
+def run_simulation(simulation_days: int):
+    prices, params_df = load_and_prepare_data()
+    simulations = simulate_all_stocks(
+        prices=prices,
+        params=params_df,
+        days=simulation_days,
+        n_paths=N_PATHS
+    )
+    summary_df = build_summary_table(prices, simulations)
+    return prices, params_df, simulations, summary_df
+
+
 def format_summary_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
@@ -98,20 +125,56 @@ def format_params_df(df: pd.DataFrame) -> pd.DataFrame:
     return df.rename(columns=COLUMN_NAMES)
 
 
+def plot_simulated_paths(paths: np.ndarray, ticker: str, n_display: int = 50):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for i in range(min(n_display, paths.shape[0])):
+        ax.plot(paths[i], linewidth=0.9)
+    ax.set_title(f"Monte Carlo Simulated Price Paths - {ticker}")
+    ax.set_xlabel("Trading Day")
+    ax.set_ylabel("Stock Price")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def plot_final_price_distribution(paths: np.ndarray, ticker: str):
+    final_prices = paths[:, -1]
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.hist(final_prices, bins=40, edgecolor="black")
+    ax.set_title(f"Distribution of Final Simulated Prices - {ticker}")
+    ax.set_xlabel("Final Simulated Price")
+    ax.set_ylabel("Frequency")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
 st.title("Tech Stock Monte Carlo Simulation Dashboard")
 st.write(
-    "This dashboard displays summary metrics and Monte Carlo simulation results for selected major technology stocks over a one-year horizon."
+    "This dashboard displays summary metrics and Monte Carlo simulation results for selected major technology stocks."
 )
 
-summary_file = TABLES_DIR / "simulation_summary.csv"
-params_file = TABLES_DIR / "estimated_parameters.csv"
+# --- Simulation Controls ---
+control_col1, control_col2 = st.columns(2)
 
-if not summary_file.exists() or not params_file.exists():
-    st.error("Missing output files. Run `python3 main.py` first to generate the simulation results.")
-    st.stop()
+with control_col1:
+    horizon_option = st.selectbox(
+        "Simulation Horizon",
+        ["1 Year", "2 Years", "3 Years"]
+    )
 
-summary_df = pd.read_csv(summary_file)
-params_df = pd.read_csv(params_file)
+HORIZON_MAP = {
+    "1 Year": 252,
+    "2 Years": 504,
+    "3 Years": 756
+}
+
+simulation_days = HORIZON_MAP[horizon_option]
+
+with control_col2:
+    st.metric("Trading Days", simulation_days)
+
+prices, params_df, simulations, summary_df = run_simulation(simulation_days)
 
 tickers = summary_df["ticker"].tolist()
 selected_ticker = st.selectbox("Select a stock", tickers)
@@ -138,29 +201,17 @@ with col2:
 
 st.subheader(f"Plots for {selected_ticker}")
 
-path_plot = FIGURES_DIR / f"{selected_ticker}_simulated_paths.png"
-hist_plot = FIGURES_DIR / f"{selected_ticker}_final_price_histogram.png"
+selected_paths = simulations[selected_ticker]
 
 plot_col1, plot_col2 = st.columns(2)
 
 with plot_col1:
     st.write("### Simulated Price Paths")
-    if path_plot.exists():
-        img = mpimg.imread(path_plot)
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.imshow(img)
-        ax.axis("off")
-        st.pyplot(fig)
-    else:
-        st.warning(f"Missing plot: {path_plot.name}")
+    fig1 = plot_simulated_paths(selected_paths, selected_ticker, n_display=50)
+    st.pyplot(fig1)
 
 with plot_col2:
     st.write("### Final Price Distribution")
-    if hist_plot.exists():
-        img = mpimg.imread(hist_plot)
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.imshow(img)
-        ax.axis("off")
-        st.pyplot(fig)
-    else:
-        st.warning(f"Missing plot: {hist_plot.name}")
+    fig2 = plot_final_price_distribution(selected_paths, selected_ticker)
+    st.pyplot(fig2)
+
