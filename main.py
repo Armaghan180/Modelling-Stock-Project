@@ -7,7 +7,7 @@ from src.analyze_results import build_summary_table
 from src.plotting import plot_sample_paths, plot_final_price_histogram
 
 
-TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "AVGO", "NFLX"]
+TICKERS = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META"]
 
 DATA_FOLDER = "data"
 OUTPUT_TABLES = "outputs/tables"

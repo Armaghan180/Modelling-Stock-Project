@@ -73,11 +73,3 @@ with plot_col2:
     else:
         st.warning(f"Missing plot: {hist_plot.name}")
 
-st.subheader("Quick Observations")
-st.write(
-    """
-- The dashboard shows the simulated future stock price outcomes based on Geometric Brownian Motion.
-- The summary table includes expected return, probability of loss, and percentile-based risk measures.
-- The plots help visualize uncertainty in future stock price behavior.
-"""
-)
